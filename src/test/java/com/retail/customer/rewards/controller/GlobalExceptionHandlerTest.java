@@ -103,6 +103,77 @@ class GlobalExceptionHandlerTest {
                 .andExpect(jsonPath("$.errors[0]").value("orderDate: Invalid date format or invalid date 'null'. Expected format yyyy-MM-dd"));
     }
 
+    @Test
+    void handlerMethodValidationException_withConstraintViolationCause_returnsErrorsFromViolations() throws Exception {
+        ConstraintViolation<?> v1 = mockConstraintViolation("param", "must not be blank");
+        ConstraintViolationException cve = new ConstraintViolationException(Set.of(v1));
+
+        org.springframework.web.method.annotation.HandlerMethodValidationException ex =
+                mock(org.springframework.web.method.annotation.HandlerMethodValidationException.class);
+        when(ex.getCause()).thenReturn(cve);
+
+        MockMvc mvc = mvcFor(ex);
+
+        mvc.perform(get("/throw"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors").isArray())
+                .andExpect(jsonPath("$.errors[0]").value("param: must not be blank"));
+    }
+
+    @Test
+    void handlerMethodValidationException_withoutConstraintViolationCause_returnsMessage() throws Exception {
+        org.springframework.web.method.annotation.HandlerMethodValidationException ex =
+                mock(org.springframework.web.method.annotation.HandlerMethodValidationException.class);
+        when(ex.getCause()).thenReturn(new RuntimeException("inner"));
+        when(ex.getMessage()).thenReturn("validation failed at method level");
+
+        MockMvc mvc = mvcFor(ex);
+
+        mvc.perform(get("/throw"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors").isArray())
+                .andExpect(jsonPath("$.errors[0]").value("validation failed at method level"));
+    }
+
+    @Test
+    void handlerMethodValidationException_withoutMessage_returnsExceptionClassSimpleName() throws Exception {
+        org.springframework.web.method.annotation.HandlerMethodValidationException ex =
+                mock(org.springframework.web.method.annotation.HandlerMethodValidationException.class);
+        when(ex.getCause()).thenReturn(new RuntimeException("inner"));
+        when(ex.getMessage()).thenReturn(null); // explicit: exercise the null-message branch
+
+        String expected = "HandlerMethodValidationException";
+
+        MockMvc mvc = mvcFor(ex);
+
+        mvc.perform(get("/throw"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors").isArray())
+                .andExpect(jsonPath("$.errors[0]").value(expected));
+    }
+
+    @Test
+    void genericException_returnsInternalServerError_withExceptionMessage() throws Exception {
+        Exception ex = new Exception("boom");
+        MockMvc mvc = mvcFor(ex);
+
+        mvc.perform(get("/throw"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.errors").isArray())
+                .andExpect(jsonPath("$.errors[0]").value("boom"));
+    }
+
+    @Test
+    void genericException_withoutMessage_returnsExceptionClassSimpleName() throws Exception {
+        Exception ex = new Exception(); // message is null
+        MockMvc mvc = mvcFor(ex);
+
+        mvc.perform(get("/throw"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.errors").isArray())
+                .andExpect(jsonPath("$.errors[0]").value("Exception"));
+    }
+
     // helper to build a MockMvc instance for a given exception by injecting an instance-based controller
     private MockMvc mvcFor(Exception ex) {
         return MockMvcBuilders
